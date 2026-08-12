@@ -10,7 +10,7 @@
 ┌──────────────────────────┐    RoCE (enp1s0f0np0, MTU 9000)     ┌──────────────────────────┐
 │   DGX Spark #1 (Head)    │◄───────────────────────────────────►│   DGX Spark #2 (Worker)  │
 │   IP: 10.10.12.11        │                                     │   IP: 10.10.12.21        │
-│   GPU: 1× GB10 (288 GB)  │                                     │   GPU: 1× GB10 (288 GB)  │
+│   GPU: 1× GB10 (128 GB)  │                                     │   GPU: 1× GB10 (128 GB)  │
 └──────────────────────────┘                                     └──────────────────────────┘
 ```
 
@@ -248,7 +248,7 @@ docker exec vllm_anemll nvidia-smi
 | 参数 | 值 | 说明 |
 |------|-----|------|
 | `--max-model-len` | `1048576` | 1M token 上下文（YaRN 原生） |
-| `--gpu-memory-utilization` | `0.78` | 显存池上限（实际仅 79GB/288GB） |
+| `--gpu-memory-utilization` | `0.78` | 显存池上限（实际模型占用约 79GB / 128GB 统一内存） |
 | `--max-num-seqs` | `6` | 最大并发（有余量可调到 8-10） |
 | `--max-num-batched-tokens` | `8192` | prefill 小块处理（省显存） |
 | `--kv-cache-dtype` | `nvfp4_ds_mla` | 4-bit 量化 KV Cache |

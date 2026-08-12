@@ -4,7 +4,7 @@
 
 ### `--tensor-parallel-size 2`
 张量并行度。DeepSeek V4 Flash 0731 NVFP4 蒸馏版约需 150GB 显存，
-单 DGX Spark GB10 有 288GB，但跨两片 GB10 (TP=2) 可提供更快的推理速度。
+单 DGX Spark GB10 有 128GB 统一内存，跨两片 GB10 (TP=2) 合计 256GB 方可载入并推理。
 
 ### `--pipeline-parallel-size 1`
 流水线并行度。模型只用一层 PP，因为 0731 蒸馏版已足够放入两卡。
@@ -35,7 +35,7 @@ GPU 显存利用率上限。设 78% 留出余量给：
 最大序列长度 = 1M tokens。DeepSeek V4 Flash 原生支持。
 
 ### `--max-num-seqs 6`
-最大并发序列数。越多越吃显存，6 是 288GB 的平衡点。
+最大并发序列数。越多越吃显存，6 是 128GB 统一内存的平衡点。
 
 ## DGX Spark 专有参数
 

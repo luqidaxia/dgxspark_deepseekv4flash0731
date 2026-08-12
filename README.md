@@ -1,6 +1,6 @@
 # Dual DGX Spark Deployment: DeepSeek V4 Flash 0731
 
-Run **DeepSeek V4 Flash 0731** (NVFP4 quantized, 1M context) across **two NVIDIA DGX Spark** (GB10, 288GB) workstations interconnected via **RoCE** (RDMA over Converged Ethernet).
+Run **DeepSeek V4 Flash 0731** (NVFP4 quantized, 1M context) across **two NVIDIA DGX Spark** (GB10, 128GB unified memory each) workstations interconnected via **RoCE** (RDMA over Converged Ethernet).
 
 > 🇨🇳 **中文版 / Chinese version:** [Gitee Mirror](https://gitee.com/alexlu0912_admin/dgxspark_deepseekv4flash0731)
 
@@ -13,7 +13,7 @@ Run **DeepSeek V4 Flash 0731** (NVFP4 quantized, 1M context) across **two NVIDIA
 │   DGX Spark #1 (Head)    │◄───────────────────────────────────►│   DGX Spark #2 (Worker)  │
 │   Mgmt: 192.168.21.234   │                                     │   Mgmt: 192.168.22.161   │
 │   RoCE: 10.10.12.11      │                                     │   RoCE: 10.10.12.21      │
-│   GPU: 1× GB10 (288 GB)  │                                     │   GPU: 1× GB10 (288 GB)  │
+│   GPU: 1× GB10 (128 GB)  │                                     │   GPU: 1× GB10 (128 GB)  │
 └──────────────────────────┘                                     └──────────────────────────┘
 ```
 
@@ -57,7 +57,7 @@ dgxspark_deepseekv4flash0731/
 |------|---------|
 | Docker Image | `ghcr.nju.edu.cn/anemll/dspark-vllm-gx10:0.1.1` |
 | Model Weights | `DeepSeek-V4-Flash-0731` full directory, same path on both nodes |
-| OS | DGX Spark (NVIDIA GB10, 288GB), Ubuntu 24.04+, with NVIDIA drivers/docker/nvidia-container-toolkit |
+| OS | DGX Spark (NVIDIA GB10, 128GB), Ubuntu 24.04+, with NVIDIA drivers/docker/nvidia-container-toolkit |
 
 ### 1. Environment Setup (Interactive Menu)
 
@@ -228,12 +228,12 @@ docker logs vllm_anemll 2>&1 | grep -i "worker\|node_rank.*1"  # Worker status
 
 ### Performance (Measured)
 
-GPU memory: 288 GB/card, actual usage ~79 GB (~27%), 200 GB+ remaining for KV Cache and 1M context.
+GPU memory: 128 GB unified memory per node, actual model weight usage ~79 GB (~62%), ~49 GB remaining for KV Cache and 1M context.
 
 | Scenario | Throughput | TTFT | Memory |
 |----------|-----------|------|--------|
-| Code generation (500 tokens) | **~61 tok/s** | ~960ms | 79 GB/GPU |
-| Long text generation (500 tokens) | ~45 tok/s | ~1s | 79 GB/GPU |
+| Code generation (500 tokens) | **~61 tok/s** | ~960ms | 79 GB/node |
+| Long text generation (500 tokens) | ~45 tok/s | ~1s | 79 GB/node |
 
 ---
 
@@ -245,22 +245,22 @@ Model natively supports 1M token context (`max_position_embeddings: 1048576` in 
 
 ### GPU Memory: `--gpu-memory-utilization 0.78`
 
-**This is the safety ceiling, not actual usage.** vLLM won't pre-allocate full memory below 0.78; actual usage is ~79 GB (27%). Remaining space goes to KV Cache for 1M context + 6 concurrent requests.
+**This is the safety ceiling, not actual usage.** vLLM won't pre-allocate full memory below 0.78; actual model weight usage is ~79 GB (~62% of 128 GB). Remaining ~49 GB goes to KV Cache for 1M context + 6 concurrent requests.
 
 | Value | Effect |
 |-------|--------|
-| 0.78 (current) | Ceiling ~224 GB, actual 79 GB, safe |
+| 0.78 (current) | Ceiling ~100 GB, actual ~79 GB, safe |
 | 0.75 | Minimum viable; lower may be rejected |
 | 0.85 | More aggressive; may OOM at peak concurrency |
 
 ### Concurrency: `--max-num-seqs 6`
 
-Maximum 6 concurrent requests. Current memory usage is only 79 GB with 200 GB+ headroom:
+Maximum 6 concurrent requests. Current model weight usage is ~79 GB with ~49 GB headroom:
 
 | Value | Use Case | Memory Pressure |
 |-------|----------|-----------------|
 | 6 (current) | Low concurrency, stable long context | Very low |
-| 8-10 | Medium concurrency | Safe, 100 GB+ headroom |
+| 8-10 | Medium concurrency | Safe, ~49 GB headroom |
 | 12+ | High concurrency | Needs testing; KV Cache grows significantly at 1M context |
 
 ### Full Parameter Reference
@@ -274,7 +274,7 @@ Maximum 6 concurrent requests. Current memory usage is only 79 GB with 200 GB+ h
 --max-model-len 1048576           # 1M token context (native YaRN)
 --max-num-seqs 6                  # Max concurrent (safe to 8-10)
 --max-num-batched-tokens 8192     # Prefill batch (small chunks save memory)
---gpu-memory-utilization 0.78     # Memory safety ceiling (~79GB/288GB)
+--gpu-memory-utilization 0.78     # Memory safety ceiling (~79GB / 128GB unified)
 --enable-chunked-prefill          # Chunk long prompts to avoid prefill OOM
 --enable-prefix-caching           # Reuse KV Cache for shared prefixes
 --speculative-config dspark       # DGX Spark hardware speculative decode
