@@ -2,8 +2,6 @@
 
 Run **DeepSeek V4 Flash 0731** (NVFP4 quantized, 1M context) across **two NVIDIA DGX Spark** (GB10, 128GB unified memory each) workstations interconnected via **RoCE** (RDMA over Converged Ethernet).
 
-> 🇨🇳 **中文版 / Chinese version:** [Gitee Mirror](https://gitee.com/alexlu0912_admin/dgxspark_deepseekv4flash0731)
-
 ---
 
 ## Hardware Topology
@@ -27,8 +25,7 @@ Run **DeepSeek V4 Flash 0731** (NVFP4 quantized, 1M context) across **two NVIDIA
 
 ```
 dgxspark_deepseekv4flash0731/
-├── README.md                # This file (English)
-├── README.zh-CN.md          # Chinese version
+├── README.md                # This file (English + 中文)
 ├── deploy/                  # ✅ Recommended — latest dual-node deploy scripts
 │   ├── config.sh            #    Configuration (image, model path, IPs)
 │   ├── prepare.sh           #    Environment setup (interactive menu)
@@ -88,11 +85,11 @@ HEAD_IP="10.10.12.11"          # Head RoCE IP
 On both nodes, configure the QSFP port (`enp1s0f0np0`):
 
 ```bash
-# Head (spark-3e35)
+# Head
 ip addr add 10.10.12.11/24 dev enp1s0f0np0
 ip link set enp1s0f0np0 mtu 9000
 
-# Worker (spark-cefb)
+# Worker
 ip addr add 10.10.12.21/24 dev enp1s0f0np0
 ip link set enp1s0f0np0 mtu 9000
 
@@ -228,7 +225,7 @@ docker logs vllm_anemll 2>&1 | grep -i "worker\|node_rank.*1"  # Worker status
 
 ### Performance (Measured)
 
-GPU memory: 128 GB unified memory per node, actual model weight usage ~79 GB (~62%), ~49 GB remaining for KV Cache and 1M context.
+GB10 128 GB unified memory per node, actual model weight usage ~79 GB (~62%), ~49 GB remaining for KV Cache and 1M context.
 
 | Scenario | Throughput | TTFT | Memory |
 |----------|-----------|------|--------|
@@ -402,5 +399,389 @@ rsync -avz --progress \
 ---
 
 ## License
+
+MIT
+
+---
+
+---
+
+# DGX Spark 双机部署 DeepSeek V4 Flash 0731
+
+两台 NVIDIA DGX Spark (GB10，每节点 128 GB 统一内存) 通过 RoCE (RDMA over Converged Ethernet) 互联，运行 **DeepSeek V4 Flash 0731** (NVFP4 量化，1M 上下文)。
+
+> 🇬🇧 English version above
+
+---
+
+## 硬件拓扑
+
+```
+┌──────────────────────────┐    RoCE (enp1s0f0np0, MTU 9000)     ┌──────────────────────────┐
+│   DGX Spark #1 (Head)    │◄───────────────────────────────────►│   DGX Spark #2 (Worker)  │
+│   管理: 192.168.21.234   │                                     │   管理: 192.168.22.161   │
+│   RoCE: 10.10.12.11      │                                     │   RoCE: 10.10.12.21      │
+│   GPU: 1× GB10 (128 GB)  │                                     │   GPU: 1× GB10 (128 GB)  │
+└──────────────────────────┘                                     └──────────────────────────┘
+```
+
+- **TP=2** 跨两块 GB10 GPU（每节点 1 块），**PP=1**，**NNODES=2**
+- **网络**: RoCE v2 over InfiniBand (`enp1s0f0np0`, GID_INDEX=5, MTU 9000)
+- **模型**: DeepSeek V4 Flash 0731 (NVFP4 量化, 1M token 上下文)
+
+---
+
+## 目录结构
+
+```
+dgxspark_deepseekv4flash0731/
+├── README.md                # 本文件（中英双语）
+├── deploy/                  # ✅ 推荐使用 — 最新双机部署脚本
+│   ├── config.sh            #    配置文件 (镜像、模型路径、IP)
+│   ├── prepare.sh           #    环境准备脚本 (交互式菜单)
+│   ├── start-head.sh        #    Head 节点启动脚本
+│   ├── start-worker.sh      #    Worker 节点启动脚本
+│   └── README.md            #    详细部署说明书
+├── legacy/                  # 旧版 dsv4dspark 参考文件
+│   ├── setup-roce.sh        #    RoCE 网络自动配置
+│   ├── preflight.sh         #    部署前预检
+│   ├── start-all.sh         #    一键编排
+│   ├── docker-compose.yml   #    Docker Compose 配置
+│   ├── benchmark-matrix.py  #    性能测试
+│   ├── *.env                #    环境变量模板
+│   └── *.md                 #    旧版文档
+├── vllm-args.md             # vLLM 参数详解
+└── troubleshooting.md       # 故障排查指南
+```
+
+---
+
+## 快速开始
+
+### 前置条件
+
+| 项目 | 说明 |
+|------|------|
+| Docker 镜像 | `ghcr.nju.edu.cn/anemll/dspark-vllm-gx10:0.1.1` |
+| 模型权重 | `DeepSeek-V4-Flash-0731` 完整目录，两台节点同一路径 |
+| 系统 | DGX Spark (NVIDIA GB10, 128GB 统一内存), Ubuntu 24.04+, 自带驱动/docker/nvidia-container-toolkit |
+
+### 1. 环境准备（交互式菜单）
+
+```bash
+cd deploy && bash prepare.sh
+```
+
+菜单：
+```
+1) 拉取 Docker 镜像   (~20 GB)
+2) 下载模型权重       (~156 GB, ModelScope)
+3) 配置 RoCE 网络     (IP + MTU)
+9) 一键全部执行
+```
+
+### 2. 配置
+
+编辑 `deploy/config.sh`：
+
+```bash
+IMAGE="ghcr.nju.edu.cn/anemll/dspark-vllm-gx10:0.1.1"
+MODEL_PATH="/data/models/deepseek-ai/DeepSeek-V4-Flash-0731"
+HEAD_IP="10.10.12.11"          # Head 的 RoCE IP
+```
+
+### 3. 配置 RoCE 网络
+
+两台节点配置 QSFP 口 (`enp1s0f0np0`)：
+
+```bash
+# Head
+ip addr add 10.10.12.11/24 dev enp1s0f0np0
+ip link set enp1s0f0np0 mtu 9000
+
+# Worker
+ip addr add 10.10.12.21/24 dev enp1s0f0np0
+ip link set enp1s0f0np0 mtu 9000
+
+# 验证互通
+ping 10.10.12.21   # 从 Head
+ping 10.10.12.11   # 从 Worker
+```
+
+### 4. 启动
+
+```bash
+# Worker 先启动
+cd deploy && bash start-worker.sh
+
+# Head 随后
+cd deploy && bash start-head.sh
+```
+
+### 5. 验证部署
+
+#### 5.1 模型列表
+
+```bash
+curl -s http://${HEAD_IP}:8888/v1/models | python3 -m json.tool
+```
+
+> ❌ 返回 `Connection refused`：等 Head 加载完成（约 5-10 分钟），`docker logs -f vllm_anemll | grep "Ulysses"` 出现即就绪。
+
+#### 5.2 基础对话
+
+```bash
+curl -s http://${HEAD_IP}:8888/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-v4-flash",
+    "messages": [{"role": "user", "content": "你好，请用一句话介绍你自己"}],
+    "max_tokens": 128,
+    "temperature": 0.6
+  }' | python3 -m json.tool
+```
+
+#### 5.3 流式输出
+
+```bash
+curl -s http://${HEAD_IP}:8888/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-v4-flash",
+    "messages": [{"role": "user", "content": "写一首五言绝句"}],
+    "max_tokens": 200,
+    "stream": true
+  }'
+```
+
+#### 5.4 吞吐基准
+
+```bash
+# 单请求延迟
+curl -s -o /dev/null -w "TTFT: %{time_starttransfer}s | Total: %{time_total}s\n" \
+  http://${HEAD_IP}:8888/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-v4-flash",
+    "messages": [{"role": "user", "content": "解释量子纠缠"}],
+    "max_tokens": 500
+  }'
+```
+
+参考值：TTFT ~1s，吞吐 40-60 tok/s（500 token 输出）。
+
+#### 5.5 验证 NCCL
+
+```bash
+docker logs vllm_anemll 2>&1 | grep -E "NCCL.*comm|NCCL.*rank|NCCL.*Channel"
+# 预期：rank 0 nranks 2（两节点连接成功）
+```
+
+#### 5.6 监控速查
+
+```bash
+docker exec vllm_anemll nvidia-smi           # GPU 使用率
+docker logs -f vllm_anemll                    # 实时日志
+docker stats vllm_anemll                      # 容器资源占用
+docker logs vllm_anemll 2>&1 | grep -i "worker\|node_rank.*1"  # Worker 在线状态
+```
+
+#### 5.7 常见验证失败
+
+| 现象 | 原因 | 排查 |
+|------|------|------|
+| `curl` 无响应 | Head 尚未加载完 | 等 5-10 分钟，看日志是否出现 `Ulysses model is ready` |
+| `model not found` | 模型名不匹配 | 使用 `deepseek-v4-flash` |
+| 乱码/空白 | tokenizer 未加载 | 检查 `--tokenizer-mode deepseek_v4` |
+| 速度 <10 tok/s | Worker 离线或 NCCL 降级 | 检查 Worker 日志 + RoCE |
+| `context length exceeds` | 输入超限 | 默认 1M context，检查输入长度 |
+
+---
+
+## 踩坑经验
+
+| 问题 | 现象 | 根因 | 解决 |
+|------|------|------|------|
+| **NODE_RANK 冲突** | Worker 5 分钟后超时退出 | Head 和 Worker 的 `--node-rank` 都设成 0 | Worker 必须 `--node-rank 1` |
+| **缺少 `/cache/huggingface` 挂载** | 每次重启 JIT 编译超慢 | flashinfer autotune 缓存丢失 | 挂载 host 目录持久化 |
+| **缺少 `--gpus all`** | `Failed to infer device type` | 容器内无 GPU 可见 | `docker run` 必须加 `--gpus all` |
+| **`-p` + `--network host` 互斥** | 端口映射不生效 | Docker 在 host 网络模式下忽略 `-p` | 用 iptables REDIRECT |
+| **RoCE IP 被 NetworkManager 清理** | 重启后 IP 丢失 | NM 未配置为 unmanaged | `nmcli dev set enp1s0f0np0 managed no` |
+| **GID_INDEX 不对** | NCCL 报 GID 错误 | MTU 不是 9000 | 脚本自动检测，MTU=1500 时用 GID=3 |
+
+### 实测性能
+
+GB10 统一内存 128 GB/节点，实际模型权重占用 ~79 GB (~62%)，~49 GB 余量用于 KV Cache 和 1M 上下文。
+
+| 场景 | 吞吐 | TTFT | 显存 |
+|------|------|------|------|
+| 代码生成 (500 tokens) | **~61 tok/s** | ~960ms | 79 GB/节点 |
+| 长文本生成 (500 tokens) | ~45 tok/s | ~1s | 79 GB/节点 |
+
+---
+
+## vLLM 关键参数
+
+### 上下文长度：`--max-model-len 1048576`
+
+模型原生支持 1M token 上下文（`config.json` 中 `max_position_embeddings: 1048576`，通过 YaRN 从 65536 扩展 16 倍）。无需滑动窗口或外推技巧。
+
+### 显存管理：`--gpu-memory-utilization 0.78`
+
+**这是安全上限，不是实际占用。** vLLM 在 0.78 以下不会预分配全部显存；实际模型权重占用约 79 GB（128 GB 的 62%）。剩余 ~49 GB 全部用于 KV Cache，支撑 1M 上下文 + 6 并发。
+
+| 值 | 效果 |
+|------|------|
+| 0.78（当前） | 上限 ~100 GB，实际 79 GB，安全 |
+| 0.75 | 最低可用值，再低 vLLM 可能拒绝启动 |
+| 0.85 | 更激进，极限并发可能 OOM |
+
+### 并发控制：`--max-num-seqs 6`
+
+最大同时处理 6 个请求。当前模型权重占用 79 GB，约 49 GB 余量：
+
+| 值 | 适用场景 | 显存压力 |
+|------|----------|---------|
+| 6（当前） | 低并发、长上下文稳定 | 极低 |
+| 8-10 | 中等并发 | 安全，~49 GB 余量 |
+| 12+ | 高并发 | 需测试，1M 上下文时 KV Cache 增长明显 |
+
+### 完整参数速查
+
+```bash
+--tensor-parallel-size 2          # TP=2 跨 2 张 GPU（两节点各一）
+--pipeline-parallel-size 1        # PP=1
+--nnodes 2                        # 2 个节点
+--kv-cache-dtype nvfp4_ds_mla     # NVFP4 4-bit MLA KV Cache（省显存关键）
+--block-size 256                  # KV Cache block 大小
+--max-model-len 1048576           # 1M token 上下文（YaRN 原生）
+--max-num-seqs 6                  # 最大并发（可调至 8-10）
+--max-num-batched-tokens 8192     # prefill 批次（小块省显存）
+--gpu-memory-utilization 0.78     # 显存安全上限（~79GB / 128GB 统一内存）
+--enable-chunked-prefill          # 长 prompt 分块防 OOM
+--enable-prefix-caching           # 共享前缀复用 KV Cache
+--speculative-config dspark       # DGX Spark 硬件推测解码
+--moe-backend flashinfer_b12x     # B300 GB10 专用 MoE
+```
+
+---
+
+## NCCL 配置详解
+
+双机推理依赖 **NCCL** 通过 RoCE 实现跨节点 GPU 通信。
+
+### 为什么必须用 `--network host`
+
+```
+容器网络栈  ──NCCL RDMA──►  物理网卡 (enp1s0f0np0)
+     ↑                            ↑
+  docker bridge 模式时            RoCE 必须直通
+  RDMA 无法穿透 NAT              物理 HCA 设备
+```
+
+NCCL RDMA 数据路径必须直通物理网卡，Docker bridge/NAT 虚拟 IP 会导致 `mlx5` HCA 绑定失败。`--network host` 是唯一可靠方式。
+
+### NCCL 环境变量
+
+| 变量 | 值 | 说明 |
+|------|-----|------|
+| `NCCL_IB_GID_INDEX` | `5` (MTU=9000) / `3` (MTU=1500) | RoCE GID 路由表索引 |
+| `NCCL_IB_HCA` | `rocep1s0f0` | 指定 RoCE 设备 |
+| `NCCL_NET` | `IB` | 强制 IB/RoCE 传输层 |
+| `NCCL_IB_ROCE_VERSION_NUM` | `2` | RoCE v2 (UDP 封装) |
+| `NCCL_CROSS_NIC` | `1` | 允许跨 NIC 通信 |
+| `NCCL_CUMEM_ENABLE` | `0` | 禁用 CUDA 内存池直通 (GB10 兼容) |
+| `NCCL_NVLS_ENABLE` | `0` | 禁用 NVLink Sharp (GB10 不支持) |
+| `NCCL_IGNORE_CPU_AFFINITY` | `1` | 忽略 CPU 亲和性 (容器内必需) |
+| `NCCL_SOCKET_IFNAME` | `enp1s0f0np0` | NCCL 通信绑定网卡 |
+| `GLOO_SOCKET_IFNAME` | `enp1s0f0np0` | Gloo 通信网卡 |
+| `TP_SOCKET_IFNAME` | `enp1s0f0np0` | TP 通信网卡 |
+
+### GID_INDEX 选择逻辑
+
+```
+       ┌── MTU == 9000? ──► GID_INDEX=5  (RoCE v2, jumbo frames)
+检测 ──┤
+       └── MTU != 9000? ──► GID_INDEX=3  (RoCE v1 兼容)
+```
+
+### NCCL 初始化流程
+
+```
+1. Head 启动 → vLLM 加载模型权重 (~150s)
+2. Worker 启动 → vLLM 加载权重，等待 Head 建连
+3. Head 完成 → NCCL init 握手 (Head ↔ Worker)
+   ├─ TCP 握手 (MASTER_ADDR:MASTER_PORT)
+   ├─ GLOO 拓扑发现 (GLOO_SOCKET_IFNAME)
+   └─ NCCL IB 建连 (NCCL_SOCKET_IFNAME + IB_GID_INDEX)
+4. 两节点各分配 NCCL rank → 同步完成 → 开始推理
+```
+
+> ⚠️ **关键**：Head `NODE_RANK=0`，Worker `NODE_RANK=1`，必须唯一。
+
+### NCCL 排查
+
+```bash
+# 查看 RoCE 设备
+ibv_devinfo
+ibv_devinfo -d rocep1s0f0 -v | grep GID
+
+# 查看 GID 表
+show_gids | grep -A3 "rocep1s0f0"
+
+# 开启详细 NCCL 日志
+docker run ... -e NCCL_DEBUG=INFO -e NCCL_DEBUG_SUBSYS=NET,INIT ...
+```
+
+### 常见 NCCL 错误
+
+| 错误 | 原因 | 解决 |
+|------|------|------|
+| `Got completion with error` | RoCE 不通/网线松 | 检查物理连接 + 双向 ping |
+| `GID index not found` | GID_INDEX 选错 | `show_gids` 确认，MTU 1500 用 3 |
+| `NCCL timeout` | Worker NODE_RANK=0 | Worker 改为 `--node-rank 1` |
+| `Socket connection refused` | Head 未就绪 Worker 先连 | 等 Head 加载完再启 Worker |
+| `mlx5_0:1 got error from peer` | 单向通另一向不通 | 防火墙检查，双向 ping |
+
+---
+
+## 模型权重获取
+
+### 方式一：HuggingFace（推荐）
+
+```bash
+pip install huggingface_hub
+huggingface-cli download deepseek-ai/DeepSeek-V4-Flash-0731 \
+  --local-dir /data/models/deepseek-ai/DeepSeek-V4-Flash-0731
+```
+
+> NVFP4 量化蒸馏版，实际约 **156 GB**，建议预留 200 GB+。两台节点都需下载。
+
+### 方式二：ModelScope（国内镜像，更快）
+
+```bash
+pip install modelscope
+modelscope download --model deepseek-ai/DeepSeek-V4-Flash-0731 \
+  --local_dir /data/models/deepseek-ai/DeepSeek-V4-Flash-0731
+```
+
+### 同步到 Worker
+
+```bash
+# 从 Head 通过 RoCE 直传
+rsync -avz --progress \
+  /data/models/deepseek-ai/DeepSeek-V4-Flash-0731/ \
+  root@10.10.12.21:/data/models/deepseek-ai/DeepSeek-V4-Flash-0731/
+```
+
+---
+
+## 作者
+
+[@alexlu0912_admin](https://gitee.com/alexlu0912_admin)
+
+---
+
+## 许可证
 
 MIT
