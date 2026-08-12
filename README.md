@@ -2,6 +2,8 @@
 
 Run **DeepSeek V4 Flash 0731** (NVFP4 quantized, 1M context) across **two NVIDIA DGX Spark** (GB10, 128GB unified memory each) workstations interconnected via **RoCE** (RDMA over Converged Ethernet).
 
+> 🇨🇳 中文版见下方 | Gitee 镜像：[gitee.com/alexlu0912_admin/dgxspark_deepseekv4flash0731](https://gitee.com/alexlu0912_admin/dgxspark_deepseekv4flash0731)
+
 ---
 
 ## Hardware Topology
@@ -410,7 +412,7 @@ MIT
 
 两台 NVIDIA DGX Spark (GB10，每节点 128 GB 统一内存) 通过 RoCE (RDMA over Converged Ethernet) 互联，运行 **DeepSeek V4 Flash 0731** (NVFP4 量化，1M 上下文)。
 
-> 🇬🇧 English version above
+> 🇬🇧 English version above | GitHub 镜像：[github.com/luqidaxia/dgxspark_deepseekv4flash0731](https://github.com/luqidaxia/dgxspark_deepseekv4flash0731)
 
 ---
 
