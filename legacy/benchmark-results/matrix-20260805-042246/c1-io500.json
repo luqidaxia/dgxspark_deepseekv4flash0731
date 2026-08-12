@@ -1,0 +1,30 @@
+{
+  "config": {
+    "api_base": "http://10.10.12.11:8888",
+    "model": "deepseek-v4-flash"
+  },
+  "cell": {
+    "concurrency": 1,
+    "prompt_len": 500,
+    "max_tokens": 500,
+    "num_requests": 3,
+    "success": 3,
+    "failure": 0
+  },
+  "metrics": {
+    "ttft_ms": {
+      "mean": 337.85681999385514,
+      "p50": 353.3502919890452,
+      "p90": 356.97375999880023,
+      "p99": 357.7890403009951
+    },
+    "tps": {
+      "mean": 54.81316022755067,
+      "p50": 56.1052585261457,
+      "p90": 56.85641055613148
+    },
+    "throughput": 53.19928907157731,
+    "generation_time_ms": 11854.807548666335,
+    "total_latency_ms": 12192.785531330932
+  }
+}
