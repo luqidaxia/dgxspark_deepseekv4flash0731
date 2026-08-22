@@ -3,6 +3,7 @@
 在 **4 台 NVIDIA DGX Spark (GB10)** 上跨节点部署 **DeepSeek V4 Flash 0731**（FP8 量化，MoE 专家 FP4，1M 上下文），通过 **RoCE** 互联，张量并行 **TP=4**（每节点 1× GB10）。
 
 > 本目录为 `4node` 分支，对应 4 台机器部署。双机（TP=2）部署见仓库 `master` 分支的 `deploy/` 目录。
+> 4 节点有两种并行方案：**TP=4**（`4node/`，主方案）与 **两两 TP=2 分两组**（`tp2-groups/`，可并行、吞吐翻倍）。取舍见下文「TP=4 vs 两两 TP=2 方案对比」。
 
 ---
 
@@ -49,15 +50,23 @@
 ## 目录结构
 
 ```
-4node/
-├── config.sh             # 4 节点配置（镜像 / 模型 / IP / vLLM 参数）
-├── node01.sh             # head (rank 0) 启动脚本
-├── node02.sh             # worker (rank 1) 启动脚本
-├── node03.sh             # worker (rank 2) 启动脚本
-├── node04.sh             # worker (rank 3) 启动脚本
-├── distribute-image.sh   # 镜像离线打包分发（不联网）
-├── roce-switch-networking.md  # 交换机组网 PFC 优先级对齐（无损网络修复）
-└── README.md             # 本文件
+├── 4node/                        # 4 节点 TP=4 方案（本分支主方案）
+│   ├── config.sh                 # TP=4 配置（镜像 / 模型 / IP / vLLM 参数）
+│   ├── node01.sh                 # head (rank 0) 启动脚本
+│   ├── node02.sh                 # worker (rank 1) 启动脚本
+│   ├── node03.sh                 # worker (rank 2) 启动脚本
+│   ├── node04.sh                 # worker (rank 3) 启动脚本
+│   ├── distribute-image.sh       # 镜像离线打包分发（不联网）
+│   ├── roce-switch-networking.md # 交换机组网 PFC 优先级对齐（无损网络修复）
+│   └── README.md
+├── tp2-groups/                   # 4 节点拆两组 TP=2 方案（可并行，吞吐翻倍）
+│   ├── config.sh                 # TP=2 公共配置
+│   ├── groupA_node01.sh          # 组A head (node01)
+│   ├── groupA_node02.sh          # 组A worker (node02)
+│   ├── groupB_node03.sh          # 组B head (node03)
+│   ├── groupB_node04.sh          # 组B worker (node04)
+│   └── README.md
+└── README.md                     # 本文件
 ```
 
 ---
