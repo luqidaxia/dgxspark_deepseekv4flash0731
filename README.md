@@ -1,5 +1,9 @@
 # Dual DGX Spark Deployment: DeepSeek V4 Flash 0731
 
+> 🌿 **分支导航**
+> - **`master`（本分支）**：双机 TP=2 部署 —— 见 `deploy/`
+> - **`4node`**：4 台机器 TP=4 部署 —— 见 [`4node/`](https://gitee.com/alexlu0912_admin/dgxspark_deepseekv4flash0731/tree/4node/4node)（单请求 ~103 tok/s，5 并发 ~157 tok/s）
+
 Run **DeepSeek V4 Flash 0731** (NVFP4 quantized, 1M context) across **two NVIDIA DGX Spark** (GB10, 128GB unified memory each) workstations interconnected via **RoCE** (RDMA over Converged Ethernet).
 
 > 🇨🇳 中文版见下方 | Gitee 镜像：[gitee.com/alexlu0912_admin/dgxspark_deepseekv4flash0731](https://gitee.com/alexlu0912_admin/dgxspark_deepseekv4flash0731)
