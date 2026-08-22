@@ -86,7 +86,7 @@ NCCL_IB_TC=106
 
 ### 3.3 交换机侧：PFC 开 traffic-class 3 + 信任 L3/DSCP + ECN
 
-以 MikroTik RouterOS 交换机为例（4 个 RoCE 接口：`qsfp56-1-1` / `qsfp56-2-1` / `qsfp56-dd-1-1` / `qsfp56-dd-2-1`）：
+以 MikroTik **CRS812-DDQ** 交换机（RouterOS）为例（4 个 RoCE 接口：`qsfp56-1-1` / `qsfp56-2-1` / `qsfp56-dd-1-1` / `qsfp56-dd-2-1`）：
 
 ```routeros
 # 1. 创建专用的 PFC 配置（定义 RoCE 流量类 3，并开启收发暂停帧）
