@@ -1,6 +1,6 @@
 # DeepSeek V4 Flash — 4 节点 TP=4 部署
 
-在 **4 台 NVIDIA DGX Spark (GB10)** 上跨节点部署 **DeepSeek V4 Flash 0731**（NVFP4 量化，1M 上下文），通过 **RoCE** 互联，张量并行 **TP=4**（每节点 1× GB10）。
+在 **4 台 NVIDIA DGX Spark (GB10)** 上跨节点部署 **DeepSeek V4 Flash 0731**（FP8 量化，MoE 专家 FP4，1M 上下文），通过 **RoCE** 互联，张量并行 **TP=4**（每节点 1× GB10）。
 
 > 本目录为 `4node` 分支，对应 4 台机器部署。双机（TP=2）部署见仓库 `master` 分支的 `deploy/` 目录。
 
@@ -31,7 +31,7 @@
 
 - **TP=4** 跨 4× GB10（每节点 1 卡），**PP=1**，**NNODES=4**
 - **网络**：RoCE v2 over InfiniBand（`enp1s0f0np0`，GID_INDEX=3，MTU 1500）
-- **模型**：DeepSeek V4 Flash 0731（NVFP4 量化，156 GB，1M token 上下文）
+- **模型**：DeepSeek V4 Flash 0731（156 GB，FP8 量化 + FP4 MoE 专家，1M token 上下文）
 
 ---
 
@@ -52,7 +52,7 @@
 
 ## 推理速度基准（实测 2026-08-22）
 
-模型：DeepSeek V4 Flash 0731（NVFP4），TP=4，4× GB10 跨节点
+模型：DeepSeek V4 Flash 0731（FP8 + FP4 专家），TP=4，4× GB10 跨节点
 
 | 场景 | 速度 |
 |------|------|
@@ -60,7 +60,7 @@
 | 单请求（首次冷启动） | ~77 tok/s |
 | 5 并发聚合吞吐 | **~157 tok/s** |
 
-对比双机 TP=2 的 ~61 tok/s，**4 节点 TP=4 单请求提速约 69%**，每节点权重从 ~78 GB 降到 ~41 GB，内存非常宽裕。
+对比双机 TP=2 的 ~61 tok/s，**4 节点 TP=4 单请求提速约 69%**，每节点权重从 ~74 GB 降到 ~41 GB（实测 40.64 GiB），内存非常宽裕。
 
 ---
 
@@ -139,6 +139,7 @@ curl http://10.10.10.101:8888/v1/chat/completions \
 |------|-----|------|
 | `--tensor-parallel-size` | 4 | 4 节点张量并行 |
 | `--nnodes` / `--node-rank` | 4 / 0~3 | 分布式规模与角色 |
+| quantization | `deepseek_v4_fp8` | FP8 权重，FP4 MoE 专家 |
 | `--kv-cache-dtype` | `nvfp4_ds_mla` | DeepSeek V4 MLA KV cache 格式 |
 | `--moe-backend` | `flashinfer_b12x` | B12X MXFP4 MoE 后端 |
 | `--speculative-config` | `dspark` num=5 | dspark 推测解码（5 token 前瞻） |
