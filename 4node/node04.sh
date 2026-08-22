@@ -32,15 +32,11 @@ if ! docker image inspect "$IMAGE" &>/dev/null; then
 fi
 echo "✅ Docker 镜像: $IMAGE"
 
-# --- 2. 检测 NCCL_IB_GID_INDEX ---
+# --- 2. 检测 RoCE 网卡（GID_INDEX 固定 3，勿按 MTU 猜） ---
 if ip link show "$NCCL_INTF" &>/dev/null; then
     MTU=$(ip link show "$NCCL_INTF" | grep -oP 'mtu \K[0-9]+')
-    if [ "$MTU" = "9000" ]; then
-        GID_INDEX=5
-    else
-        GID_INDEX=3
-    fi
-    echo "✅ RoCE 网卡: $NCCL_INTF (MTU=$MTU → GID_INDEX=$GID_INDEX)"
+    GID_INDEX="${NCCL_IB_GID_INDEX:-3}"
+    echo "✅ RoCE 网卡: $NCCL_INTF (MTU=$MTU, GID_INDEX=$GID_INDEX)"
 else
     echo "❌ RoCE 网卡 $NCCL_INTF 不存在，请修改 config.sh 中的 NCCL_INTF"
     exit 1
@@ -71,7 +67,7 @@ docker run -d --name vllm_anemll \
     -e MASTER_ADDR="$MASTER_ADDR" -e MASTER_PORT="$MASTER_PORT" -e NODE_RANK="$NODE_RANK" \
     -e VLLM_HOST_IP="$NODE04_IP" \
     -e NCCL_IB_GID_INDEX="$GID_INDEX" -e NCCL_IB_HCA="$NCCL_IB_HCA" -e NCCL_NET=IB \
-    -e NCCL_IB_ROCE_VERSION_NUM=2 -e NCCL_CROSS_NIC=1 \
+    -e NCCL_IB_ROCE_VERSION_NUM=2 -e NCCL_CROSS_NIC=1 -e NCCL_IB_TC="$NCCL_IB_TC" \
     -e NCCL_DEBUG=WARN -e NCCL_SOCKET_IFNAME="$NCCL_INTF" \
     -e GLOO_SOCKET_IFNAME="$NCCL_INTF" -e TP_SOCKET_IFNAME="$NCCL_INTF" \
     -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \

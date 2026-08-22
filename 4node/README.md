@@ -9,7 +9,7 @@
 ## 硬件拓扑
 
 ```
-┌───────────────┐      RoCE (enp1s0f0np0, MTU 1500, GID=3)      ┌───────────────┐
+┌───────────────┐      RoCE (enp1s0f0np0, MTU 9000, GID=3)      ┌───────────────┐
 │ node01 (head) │◄─────────────────────────────────────────────►│ node02 (rank1)│
 │ 10.10.10.101  │                                               │ 10.10.10.102  │
 │  1× GB10      │                                               │  1× GB10      │
@@ -30,7 +30,7 @@
 | node04 | worker | `10.10.10.104` | 3 | `192.168.22.134` |
 
 - **TP=4** 跨 4× GB10（每节点 1 卡），**PP=1**，**NNODES=4**
-- **网络**：RoCE v2 over InfiniBand（`enp1s0f0np0`，GID_INDEX=3，MTU 1500）
+- **网络**：RoCE v2 over InfiniBand（`enp1s0f0np0`，GID_INDEX=3，MTU 9000），经 **MikroTik 交换机** 全互联（200G QSFP56-DD + QSFP56 混插），RoCE 流量/PFC 统一对齐到 **priority 3**
 - **模型**：DeepSeek V4 Flash 0731（156 GB，FP8 量化 + FP4 MoE 专家，1M token 上下文）
 
 ---
@@ -45,6 +45,7 @@
 ├── node03.sh             # worker (rank 2) 启动脚本
 ├── node04.sh             # worker (rank 3) 启动脚本
 ├── distribute-image.sh   # 镜像离线打包分发（不联网）
+├── roce-switch-networking.md  # 交换机组网 PFC 优先级对齐（无损网络修复）
 └── README.md             # 本文件
 ```
 
@@ -71,7 +72,7 @@
 | Docker 镜像 | `anemll-dspark-vllm:latest`（18.8 GB，与 `ghcr.nju.edu.cn/anemll/dspark-vllm-gx10:0.1.1` 同一镜像） |
 | 模型权重 | `DeepSeek-V4-Flash-0731` 完整目录（156 GB），4 台机放**相同路径** |
 | 系统 | DGX Spark（NVIDIA GB10，128GB），Ubuntu 24.04+，带 NVIDIA 驱动 / Docker / nvidia-container-toolkit |
-| 网络 | 4 台机 RoCE 互联（`enp1s0f0np0`），MTU 1500，GID_INDEX=3 |
+| 网络 | 4 台机 RoCE 经交换机全互联（`enp1s0f0np0`），MTU 9000，GID_INDEX=3，PFC 对齐 priority 3 |
 
 ---
 
@@ -145,7 +146,8 @@ curl http://10.10.10.101:8888/v1/chat/completions \
 | `--speculative-config` | `dspark` num=5 | dspark 推测解码（5 token 前瞻） |
 | `--max-model-len` | 1048576 | 1M 上下文 |
 | `--gpu-memory-utilization` | 0.78 | 每节点权重 ~41 GB，内存宽裕 |
-| `NCCL_IB_GID_INDEX` | 3 | MTU 1500 → 3（脚本自动检测） |
+| `NCCL_IB_GID_INDEX` | 3 | 本集群 RoCE v2 固定 3（与 MTU 无关） |
+| `NCCL_IB_TC` | 106 | RoCE 流量 DSCP 26 → priority 3，与 PFC 对齐（无损网络关键） |
 
 ---
 
@@ -162,6 +164,9 @@ curl http://10.10.10.101:8888/v1/chat/completions \
 
 **Q: 端口占用？**
 → 默认 API 端口 8888，NCCL 端口 25000。`docker rm -f vllm_anemll` 后重启。
+
+**Q: 经交换机后 TTFT 崩了（生成 TPS 正常但首 token 慢 10 倍）？**
+→ RoCE 流量 DSCP=0 与 PFC(priority 3) 错位导致 prefill 拥塞丢包。按 [`roce-switch-networking.md`](roce-switch-networking.md) 把「节点 `trust=dscp` + `NCCL_IB_TC=106` + 交换机 PFC `traffic-class=3`」三处对齐即可。
 
 ---
 

@@ -21,9 +21,13 @@ MASTER_ADDR="10.10.10.101"       # head (node01) 的 RoCE IP
 MASTER_PORT=25000                 # vLLM 分布式通信端口
 NCCL_INTF="enp1s0f0np0"          # RoCE 网卡名（DGX Spark 默认）
 NCCL_IB_HCA="rocep1s0f0"         # InfiniBand HCA 设备名
-# GID_INDEX: MTU=1500 → 3（本集群实际值），MTU=9000 → 5
-# 启动脚本会自动检测 MTU 并覆盖该值
+# GID_INDEX: 本集群 RoCE v2 固定为 3（与 MTU 1500/9000 无关，实测均为 3）
 NCCL_IB_GID_INDEX=3
+# NCCL_IB_TC: RoCE v2 流量优先级（8-bit traffic class / ToS）。
+# 106 = DSCP 26 + ECN，映射到 priority 3，与节点 PFC(priority 3) 和
+# 交换机 PFC(traffic-class 3) 对齐，实现无损 RoCE（详见 roce-switch-networking.md）。
+# 前提：节点网卡已执行 `mlnx_qos -i <iface> --trust=dscp`。
+NCCL_IB_TC=106
 
 # --- 4 节点 RoCE IP 映射 -------------------------------------------
 NODE01_IP="10.10.10.101"         # head,  rank 0
