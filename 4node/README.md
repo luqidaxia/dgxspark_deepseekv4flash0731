@@ -17,14 +17,14 @@
                 │ RoCE 200G                      │ RoCE 200G
                 │ enp1s0f0np0, MTU 9000, GID=3   │
                 ▼                                ▼
-   ┌────────────────────────────────────────────────────────┐
-   │           MikroTik CRS812-DDQ 交换机（1 台）            │
-   │  qsfp56-1-1 · qsfp56-2-1 · qsfp56-dd-1-1 ·             │
-   │  qsfp56-dd-2-1（4× 200G 口，4 节点统一接入）             │
-   └────────────────┬──────────────────┬────────────────────┘
-                    │                  │
-          RoCE 200G │                  │ RoCE 200G
-                    ▼                  ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │      MikroTik CRS812-8DS-2DQ-2DDQ-RM 交换机（1 台，星型）      │
+   │  DQ  口（QSFP56,  200G）：qsfp56-1-1 / qsfp56-2-1             │
+   │  DDQ 口（QSFP-DD, 200G）：qsfp56-dd-1-1 / qsfp56-dd-2-1       │
+   └───────────────┬──────────────────────────────┬────────────────┘
+                   │                              │
+         RoCE 200G │                              │ RoCE 200G
+                   ▼                              ▼
         ┌────────────────┐              ┌────────────────┐
         │    1× GB10     │              │    1× GB10     │
         └───────┬────────┘              └────────┬───────┘
@@ -40,7 +40,7 @@
 | node04 | worker | `10.10.10.104` | 3 | `192.168.22.134` |
 
 - **TP=4** 跨 4× GB10（每节点 1 卡），**PP=1**，**NNODES=4**
-- **网络**：RoCE v2 over InfiniBand（`enp1s0f0np0`，GID_INDEX=3，MTU 9000），4 节点统一接入 1 台 **MikroTik CRS812-DDQ 交换机**（星型互联，200G QSFP56-DD + QSFP56 混插），RoCE 流量/PFC 统一对齐到 **priority 3**
+- **网络**：RoCE v2 over InfiniBand（`enp1s0f0np0`，GID_INDEX=3，MTU 9000），4 节点统一接入 1 台 **MikroTik CRS812-8DS-2DQ-2DDQ-RM 交换机**（星型互联，2× QSFP56 + 2× QSFP-DD，均 200G），RoCE 流量/PFC 统一对齐到 **priority 3**
 - **模型**：DeepSeek V4 Flash 0731（156 GB，FP8 量化 + FP4 MoE 专家，1M token 上下文）
 
 ---
@@ -82,7 +82,7 @@
 | Docker 镜像 | `anemll-dspark-vllm:latest`（18.8 GB，与 `ghcr.nju.edu.cn/anemll/dspark-vllm-gx10:0.1.1` 同一镜像） |
 | 模型权重 | `DeepSeek-V4-Flash-0731` 完整目录（156 GB），4 台机放**相同路径** |
 | 系统 | DGX Spark（NVIDIA GB10，128GB），Ubuntu 24.04+，带 NVIDIA 驱动 / Docker / nvidia-container-toolkit |
-| 网络 | 4 台机统一接入 1 台 MikroTik CRS812-DDQ 交换机（星型，`enp1s0f0np0`），MTU 9000，GID_INDEX=3，PFC 对齐 priority 3 |
+| 网络 | 4 台机统一接入 1 台 MikroTik CRS812-8DS-2DQ-2DDQ-RM 交换机（星型，`enp1s0f0np0`），MTU 9000，GID_INDEX=3，PFC 对齐 priority 3 |
 
 ---
 
