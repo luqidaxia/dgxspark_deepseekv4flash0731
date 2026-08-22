@@ -1,246 +1,70 @@
-# DeepSeek V4 Flash 0731 — 4-Node TP=4 Deployment
+# DeepSeek V4 Flash — 4 节点 TP=4 部署
 
-Run **DeepSeek V4 Flash 0731** (FP8 quantized, MoE experts in FP4, 1M context) across **four NVIDIA DGX Spark** (GB10, 128GB unified memory each) workstations interconnected via **RoCE** (RDMA over Converged Ethernet), with tensor parallelism **TP=4** (one GB10 GPU per node).
+在 **4 台 NVIDIA DGX Spark (GB10)** 上跨节点部署 **DeepSeek V4 Flash 0731**（FP8 量化，MoE 专家 FP4，1M 上下文），通过 **RoCE** 互联，张量并行 **TP=4**（每节点 1× GB10）。
 
-> 🌿 **Branch navigation**
-> - **`4node`（this branch）**：4-node TP=4 deployment —— see `4node/`
-> - **`master`**：2-node TP=2 deployment —— see [`deploy/`](https://gitee.com/alexlu0912_admin/dgxspark_deepseekv4flash0731/tree/master/deploy)
-
-> 🇨🇳 中文版见下方 | Gitee mirror：[gitee.com/alexlu0912_admin/dgxspark_deepseekv4flash0731](https://gitee.com/alexlu0912_admin/dgxspark_deepseekv4flash0731)
-
----
-
-## Hardware Topology
-
-```
-┌────────────────┐       RoCE (enp1s0f0np0, MTU 1500, GID=3)       ┌────────────────┐
-│  node01 (head) │◄──────────────────────────────────────────────►│ node02 (rank1) │
-│  10.10.10.101  │                                                │  10.10.10.102  │
-│   1× GB10      │                                                │   1× GB10      │
-└───────┬────────┘                                                └───────┬────────┘
-        │                     RoCE full mesh                             │
-┌───────┴────────┐                                                ┌───────┴────────┐
-│ node03 (rank2) │◄──────────────────────────────────────────────►│ node04 (rank3) │
-│  10.10.10.103  │                                                │  10.10.10.104  │
-│   1× GB10      │                                                │   1× GB10      │
-└────────────────┘                                                └────────────────┘
-```
-
-| Node   | Role   | RoCE IP       | NCCL Rank | Mgmt IP        |
-|--------|--------|---------------|-----------|----------------|
-| node01 | head   | `10.10.10.101`| 0         | `192.168.22.141` |
-| node02 | worker | `10.10.10.102`| 1         | `192.168.22.119` |
-| node03 | worker | `10.10.10.103`| 2         | `192.168.22.139` |
-| node04 | worker | `10.10.10.104`| 3         | `192.168.22.134` |
-
-- **TP=4** across 4× GB10 (1 GPU per node), **PP=1**, **NNODES=4**
-- **Network**: RoCE v2 over InfiniBand (`enp1s0f0np0`, HCA `rocep1s0f0`, GID_INDEX=3, MTU 1500)
-- **Model**: DeepSeek V4 Flash 0731 (156 GB, FP8 quantized with FP4 MoE experts, 1M token context)
-
----
-
-## Speed Benchmark (measured 2026-08-22)
-
-Model: DeepSeek V4 Flash 0731, TP=4 across 4× GB10.
-
-| Scenario | Speed |
-|----------|-------|
-| Single request (500-token code gen, after warmup) | **~103 tok/s** (98~108) |
-| Single request (cold start) | ~77 tok/s |
-| 5-way concurrent aggregate throughput | **~157 tok/s** |
-
-Compared with the 2-node TP=2 baseline (~61 tok/s), **4-node TP=4 gives ~69% faster single-request throughput**, while per-node weights drop from ~74 GB to ~41 GB (40.64 GiB measured), leaving memory very comfortable.
-
----
-
-## Directory Structure
-
-```
-dgxspark_deepseekv4flash0731/          (4node branch)
-├── README.md                # This file (English + 中文)
-├── 4node/                   # ✅ 4-node TP=4 deploy scripts
-│   ├── config.sh            #    Configuration (image, model path, 4× IPs, vLLM args)
-│   ├── node01.sh            #    head (rank 0) startup
-│   ├── node02.sh            #    worker (rank 1) startup
-│   ├── node03.sh            #    worker (rank 2) startup
-│   ├── node04.sh            #    worker (rank 3) startup
-│   ├── distribute-image.sh  #    Offline image packing & distribution (no internet)
-│   └── README.md            #    Detailed 4-node deployment guide
-├── deploy/                  # 2-node TP=2 scripts (master-branch reference)
-├── legacy/                  # Legacy reference files from dsv4dspark
-├── vllm-args.md             # vLLM parameter reference
-├── troubleshooting.md       # Troubleshooting guide
-└── LICENSE
-```
-
----
-
-## Quick Start
-
-### Prerequisites
-
-| Item | Details |
-|------|---------|
-| Docker image | `anemll-dspark-vllm:latest` (18.8 GB; identical to `ghcr.nju.edu.cn/anemll/dspark-vllm-gx10:0.1.1`) |
-| Model weights | `DeepSeek-V4-Flash-0731` full directory (156 GB, 48 safetensors shards), same path on all 4 nodes |
-| OS | DGX Spark (NVIDIA GB10, 128 GB), Ubuntu 24.04+, NVIDIA driver / Docker / nvidia-container-toolkit |
-| Network | RoCE interconnect on all 4 nodes (`enp1s0f0np0`, MTU 1500, GID_INDEX=3) |
-
-### 1. Prepare the Docker Image (pick one)
-
-**A. Offline pack & distribute (recommended, no internet)** — run on a machine that already has the image:
-
-```bash
-bash 4node/distribute-image.sh
-```
-
-Flow: `docker save` → CX7 direct link to node02 → node02 fans out to the other 3 nodes over RoCE → `docker load` on each.
-
-**B. Pull from registry** — run on every node:
-
-```bash
-docker pull ghcr.nju.edu.cn/anemll/dspark-vllm-gx10:0.1.1
-docker tag ghcr.nju.edu.cn/anemll/dspark-vllm-gx10:0.1.1 anemll-dspark-vllm:latest
-```
-
-### 2. Prepare Model Weights
-
-Make sure `/data/models/deepseek-ai/DeepSeek-V4-Flash-0731` is complete (156 GB, 48 safetensors shards) on all 4 nodes. Sync from an existing node with `rsync` over RoCE if needed.
-
-### 3. Configure
-
-Edit `4node/config.sh` and confirm `MASTER_ADDR`, the four node IPs, `IMAGE`, and `MODEL_PATH`. Copy the whole `4node/` directory to all 4 nodes (at minimum `config.sh` + the node's own script).
-
-### 4. Launch (workers first, head last)
-
-```bash
-# 1) On the three worker nodes first
-bash node02.sh      # on node02
-bash node03.sh      # on node03
-bash node04.sh      # on node04
-
-# 2) Then on the head node
-bash node01.sh      # on node01
-```
-
-> ⚠️ Launch order: **workers first, head last** (5–10 s apart). Once the head starts, NCCL builds the connection and every node loads 48 shards; the service is ready in ~5 minutes.
-
-### 5. Verify Deployment
-
-```bash
-# Confirm readiness
-docker logs vllm_anemll 2>&1 | grep "Application startup complete"
-
-# List models
-curl http://10.10.10.101:8888/v1/models
-
-# Basic chat
-curl http://10.10.10.101:8888/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"你好"}],"max_tokens":128}'
-
-# Verify NCCL world size
-docker logs vllm_anemll 2>&1 | grep "world_size=4"
-```
-
----
-
-## Key vLLM Parameters
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| `--tensor-parallel-size` | 4 | 4-node tensor parallelism |
-| `--nnodes` / `--node-rank` | 4 / 0~3 | Distribution size and role |
-| quantization | `deepseek_v4_fp8` | FP8 weights, FP4 MoE experts |
-| `--kv-cache-dtype` | `nvfp4_ds_mla` | DeepSeek V4 MLA KV cache format |
-| `--moe-backend` | `flashinfer_b12x` | B12X MXFP4 MoE backend |
-| `--speculative-config` | `dspark` num=5 | dspark speculative decoding (5-token lookahead) |
-| `--max-model-len` | 1048576 | 1M context |
-| `--gpu-memory-utilization` | 0.78 | per-node weights ~41 GB, memory comfortable |
-| `NCCL_IB_GID_INDEX` | 3 | MTU 1500 → 3 (auto-detected by script) |
-
----
-
-## NCCL Configuration
-
-- **Why `--network host` is mandatory**: RDMA data path must bind the physical HCA (`rocep1s0f0`); a Docker bridge IP would prevent RDMA from reaching the NIC and NCCL would fail its control-plane/data-plane IP validation.
-- **GID_INDEX selection**: the startup scripts auto-detect the interface MTU — MTU 9000 → GID_INDEX=5, otherwise (MTU 1500) → GID_INDEX=3. This cluster uses MTU 1500 → GID 3.
-- **NCCL env vars** are set in `node*.sh`: `NCCL_IB_HCA`, `NCCL_NET=IB`, `NCCL_IB_ROCE_VERSION_NUM=2`, `NCCL_SOCKET_IFNAME`/`GLOO_SOCKET_IFNAME`/`TP_SOCKET_IFNAME`.
-
----
-
-## Troubleshooting
-
-**Q: node03 occasionally stalls early in weight loading (10+ min no progress, disk IO 0)?**
-→ An occasional init stall; restart that node's container. Normal load takes ~81 s. It is not a model file issue (48 shards intact, md5 verified).
-
-**Q: NCCL connection fails?**
-→ Verify the 4 nodes' RoCE IPs are reachable (`ping 10.10.10.x`), `NCCL_INTF` matches the real interface, and GID_INDEX matches the MTU.
-
-**Q: OOM / container killed?**
-→ On GB10 unified memory, make sure no other inference container (e.g. GLM) holds memory before starting. `free -h` should show > 60 GB available.
-
-**Q: Port in use?**
-→ Default API port 8888, NCCL port 25000. `docker rm -f vllm_anemll` then restart.
-
----
-
-## Author
-
-Maintained by [@alexlu0912_admin](https://gitee.com/alexlu0912_admin) · `4node` branch
-
-## License
-
-MIT License — see [LICENSE](./LICENSE).
-
----
-
----
-
-# DeepSeek V4 Flash 0731 — 4 节点 TP=4 部署
-
-在 **4 台 NVIDIA DGX Spark (GB10，每台 128GB 统一内存)** 上跨节点部署 **DeepSeek V4 Flash 0731**（FP8 量化，MoE 专家层 FP4，1M 上下文），通过 **RoCE** 互联，张量并行 **TP=4**（每节点 1 张 GB10）。
-
-> 🌿 **分支导航**
-> - **`4node`（本分支）**：4 节点 TP=4 部署 —— 见 `4node/`
-> - **`master`**：双机 TP=2 部署 —— 见 [`deploy/`](https://gitee.com/alexlu0912_admin/dgxspark_deepseekv4flash0731/tree/master/deploy)
-
-> [English version](#) | Gitee 镜像：[gitee.com/alexlu0912_admin/dgxspark_deepseekv4flash0731](https://gitee.com/alexlu0912_admin/dgxspark_deepseekv4flash0731)
+> 本目录为 `4node` 分支，对应 4 台机器部署。双机（TP=2）部署见仓库 `master` 分支的 `deploy/` 目录。
 
 ---
 
 ## 硬件拓扑
 
 ```
-┌────────────────┐       RoCE (enp1s0f0np0, MTU 1500, GID=3)       ┌────────────────┐
-│  node01 (head) │◄──────────────────────────────────────────────►│ node02 (rank1) │
-│  10.10.10.101  │                                                │  10.10.10.102  │
-│   1× GB10      │                                                │   1× GB10      │
-└───────┬────────┘                                                └───────┬────────┘
-        │                     RoCE 全互联                                 │
-┌───────┴────────┐                                                ┌───────┴────────┐
-│ node03 (rank2) │◄──────────────────────────────────────────────►│ node04 (rank3) │
-│  10.10.10.103  │                                                │  10.10.10.104  │
-│   1× GB10      │                                                │   1× GB10      │
-└────────────────┘                                                └────────────────┘
+        node01 (head)                    node02 (rank1)
+        10.10.10.101                     10.10.10.102
+        ┌────────────────┐              ┌────────────────┐
+        │    1× GB10     │              │    1× GB10     │
+        └───────┬────────┘              └────────┬───────┘
+                │ RoCE 200G                      │ RoCE 200G
+                │ enp1s0f0np0, MTU 9000, GID=3   │
+                ▼                                ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │      MikroTik CRS812-8DS-2DQ-2DDQ-RM 交换机（1 台，星型）      │
+   │  DQ  口（QSFP56,  200G）：qsfp56-1-1 / qsfp56-2-1             │
+   │  DDQ 口（QSFP-DD, 200G）：qsfp56-dd-1-1 / qsfp56-dd-2-1       │
+   │  DS  口（50G × 8）：未使用                                    │
+   └───────────────┬──────────────────────────────┬────────────────┘
+                   │                              │
+         RoCE 200G │                              │ RoCE 200G
+                   ▼                              ▼
+        ┌────────────────┐              ┌────────────────┐
+        │    1× GB10     │              │    1× GB10     │
+        └───────┬────────┘              └────────┬───────┘
+        node03 (rank2)                    node04 (rank3)
+        10.10.10.103                     10.10.10.104
 ```
 
-| 节点 | 角色 | RoCE IP       | NCCL Rank | 管理 IP        |
-|------|------|---------------|-----------|----------------|
-| node01 | head   | `10.10.10.101` | 0         | `192.168.22.141` |
-| node02 | worker | `10.10.10.102` | 1         | `192.168.22.119` |
-| node03 | worker | `10.10.10.103` | 2         | `192.168.22.139` |
-| node04 | worker | `10.10.10.104` | 3         | `192.168.22.134` |
+| 节点 | 角色 | RoCE IP | NCCL Rank | 管理 IP |
+|------|------|---------|-----------|---------|
+| node01 | head | `10.10.10.101` | 0 | `192.168.22.141` |
+| node02 | worker | `10.10.10.102` | 1 | `192.168.22.119` |
+| node03 | worker | `10.10.10.103` | 2 | `192.168.22.139` |
+| node04 | worker | `10.10.10.104` | 3 | `192.168.22.134` |
 
 - **TP=4** 跨 4× GB10（每节点 1 卡），**PP=1**，**NNODES=4**
-- **网络**：RoCE v2 over InfiniBand（`enp1s0f0np0`，HCA `rocep1s0f0`，GID_INDEX=3，MTU 1500）
+- **网络**：RoCE v2 over InfiniBand（`enp1s0f0np0`，GID_INDEX=3，MTU 9000），4 节点统一接入 1 台 **MikroTik CRS812-8DS-2DQ-2DDQ-RM 交换机**（星型互联，2× QSFP56 + 2× QSFP-DD，均 200G），RoCE 流量/PFC 统一对齐到 **priority 3**
 - **模型**：DeepSeek V4 Flash 0731（156 GB，FP8 量化 + FP4 MoE 专家，1M token 上下文）
+
+---
+
+## 目录结构
+
+```
+4node/
+├── config.sh             # 4 节点配置（镜像 / 模型 / IP / vLLM 参数）
+├── node01.sh             # head (rank 0) 启动脚本
+├── node02.sh             # worker (rank 1) 启动脚本
+├── node03.sh             # worker (rank 2) 启动脚本
+├── node04.sh             # worker (rank 3) 启动脚本
+├── distribute-image.sh   # 镜像离线打包分发（不联网）
+├── roce-switch-networking.md  # 交换机组网 PFC 优先级对齐（无损网络修复）
+└── README.md             # 本文件
+```
 
 ---
 
 ## 推理速度基准（实测 2026-08-22）
 
-模型：DeepSeek V4 Flash 0731，TP=4，4× GB10 跨节点。
+模型：DeepSeek V4 Flash 0731（FP8 + FP4 专家），TP=4，4× GB10 跨节点
 
 | 场景 | 速度 |
 |------|------|
@@ -252,48 +76,28 @@ MIT License — see [LICENSE](./LICENSE).
 
 ---
 
-## 目录结构
+## 前提条件
 
-```
-dgxspark_deepseekv4flash0731/          (4node 分支)
-├── README.md                # 本文件（英文 + 中文）
-├── 4node/                   # ✅ 4 节点 TP=4 部署脚本
-│   ├── config.sh            #    配置（镜像 / 模型路径 / 4 个 IP / vLLM 参数）
-│   ├── node01.sh            #    head (rank 0) 启动
-│   ├── node02.sh            #    worker (rank 1) 启动
-│   ├── node03.sh            #    worker (rank 2) 启动
-│   ├── node04.sh            #    worker (rank 3) 启动
-│   ├── distribute-image.sh  #    镜像离线打包分发（不联网）
-│   └── README.md            #    4 节点详细部署指南
-├── deploy/                  # 双机 TP=2 脚本（master 分支参考）
-├── legacy/                  # dsv4dspark 旧版参考文件
-├── vllm-args.md             # vLLM 参数参考
-├── troubleshooting.md       # 排查指南
-└── LICENSE
-```
+| 项目 | 详情 |
+|------|------|
+| Docker 镜像 | `anemll-dspark-vllm:latest`（18.8 GB，与 `ghcr.nju.edu.cn/anemll/dspark-vllm-gx10:0.1.1` 同一镜像） |
+| 模型权重 | `DeepSeek-V4-Flash-0731` 完整目录（156 GB），4 台机放**相同路径** |
+| 系统 | DGX Spark（NVIDIA GB10，128GB），Ubuntu 24.04+，带 NVIDIA 驱动 / Docker / nvidia-container-toolkit |
+| 网络 | 4 台机统一接入 1 台 MikroTik CRS812-8DS-2DQ-2DDQ-RM 交换机（星型，`enp1s0f0np0`），MTU 9000，GID_INDEX=3，PFC 对齐 priority 3 |
 
 ---
 
 ## 快速开始
 
-### 前置条件
-
-| 项目 | 详情 |
-|------|------|
-| Docker 镜像 | `anemll-dspark-vllm:latest`（18.8 GB，与 `ghcr.nju.edu.cn/anemll/dspark-vllm-gx10:0.1.1` 同一镜像） |
-| 模型权重 | `DeepSeek-V4-Flash-0731` 完整目录（156 GB，48 个 safetensors 分片），4 台机相同路径 |
-| 系统 | DGX Spark（NVIDIA GB10，128 GB），Ubuntu 24.04+，带 NVIDIA 驱动 / Docker / nvidia-container-toolkit |
-| 网络 | 4 台机 RoCE 互联（`enp1s0f0np0`，MTU 1500，GID_INDEX=3） |
-
 ### 1. 准备镜像（二选一）
 
-**A. 离线打包分发（推荐，不联网）** — 在已有镜像的机器上执行：
+**A. 离线打包分发（推荐，不联网）** — 在有镜像的机器上执行：
 
 ```bash
-bash 4node/distribute-image.sh
+bash distribute-image.sh
 ```
 
-流程：`docker save` → CX7 直连发到 node02 → node02 走 RoCE 并行分发到其余 3 节点 → 各节点 `docker load`。
+脚本流程：`docker save` → CX7 直连发到 node02 → node02 走 RoCE 并行分发到其余 3 节点 → 各节点 `docker load`。
 
 **B. 联网拉取** — 在每台节点执行：
 
@@ -308,7 +112,7 @@ docker tag ghcr.nju.edu.cn/anemll/dspark-vllm-gx10:0.1.1 anemll-dspark-vllm:late
 
 ### 3. 配置
 
-编辑 `4node/config.sh`，确认 `MASTER_ADDR`、4 个节点 IP、`IMAGE`、`MODEL_PATH` 正确。将整个 `4node/` 目录复制到 4 台机（至少 `config.sh` + 对应节点的脚本）。
+编辑 `config.sh`，确认 `MASTER_ADDR`、节点 IP、`IMAGE`、`MODEL_PATH` 正确。将整个 `4node/` 目录复制到 4 台机（或至少复制 `config.sh` + 对应节点的脚本）。
 
 ### 4. 启动（注意顺序：worker 先，head 后）
 
@@ -324,7 +128,7 @@ bash node01.sh      # node01 上
 
 > ⚠️ 启动顺序：**worker 先启，head 后启**（5~10 秒间隔）。head 启动后 NCCL 建连，双方各自加载 48 个 shard，约 5 分钟后服务就绪。
 
-### 5. 验证部署
+### 5. 验证
 
 ```bash
 # 确认服务就绪
@@ -337,14 +141,11 @@ curl http://10.10.10.101:8888/v1/models
 curl http://10.10.10.101:8888/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"你好"}],"max_tokens":128}'
-
-# 验证 NCCL world size
-docker logs vllm_anemll 2>&1 | grep "world_size=4"
 ```
 
 ---
 
-## 关键 vLLM 参数
+## 关键参数说明
 
 | 参数 | 值 | 说明 |
 |------|-----|------|
@@ -356,15 +157,8 @@ docker logs vllm_anemll 2>&1 | grep "world_size=4"
 | `--speculative-config` | `dspark` num=5 | dspark 推测解码（5 token 前瞻） |
 | `--max-model-len` | 1048576 | 1M 上下文 |
 | `--gpu-memory-utilization` | 0.78 | 每节点权重 ~41 GB，内存宽裕 |
-| `NCCL_IB_GID_INDEX` | 3 | MTU 1500 → 3（脚本自动检测） |
-
----
-
-## NCCL 配置
-
-- **为什么必须 `--network host`**：RDMA 数据路径必须绑定物理 HCA（`rocep1s0f0`），Docker 桥接 IP 会让 RDMA 找不到网卡，NCCL 控制面/数据面 IP 校验也会失败。
-- **GID_INDEX 选择**：启动脚本自动检测网卡 MTU——MTU 9000 → GID_INDEX=5，否则（MTU 1500）→ GID_INDEX=3。本集群为 MTU 1500 → GID 3。
-- **NCCL 环境变量**在 `node*.sh` 中设置：`NCCL_IB_HCA`、`NCCL_NET=IB`、`NCCL_IB_ROCE_VERSION_NUM=2`、`NCCL_SOCKET_IFNAME`/`GLOO_SOCKET_IFNAME`/`TP_SOCKET_IFNAME`。
+| `NCCL_IB_GID_INDEX` | 3 | 本集群 RoCE v2 固定 3（与 MTU 无关） |
+| `NCCL_IB_TC` | 106 | RoCE 流量 DSCP 26 → priority 3，与 PFC 对齐（无损网络关键） |
 
 ---
 
@@ -377,17 +171,14 @@ docker logs vllm_anemll 2>&1 | grep "world_size=4"
 → 确认 4 台机 RoCE IP 可达（`ping 10.10.10.x`），`NCCL_INTF` 网卡名正确，GID_INDEX 与 MTU 匹配。
 
 **Q: 内存不足 / 容器被 Kill？**
-→ GB10 统一内存下，确保启动前没有其他推理容器占用内存（如 GLM）。`free -h` 应显示可用内存 > 60 GB。
+→ GB10 统一内存下，确保启动前没有其他推理容器占用内存（如 GLM）。可用 `free -h` 确认可用内存 > 60 GB。
 
 **Q: 端口占用？**
 → 默认 API 端口 8888，NCCL 端口 25000。`docker rm -f vllm_anemll` 后重启。
 
+**Q: 经交换机后 TTFT 崩了（生成 TPS 正常但首 token 慢 10 倍）？**
+→ RoCE 流量 DSCP=0 与 PFC(priority 3) 错位导致 prefill 拥塞丢包。按 [`roce-switch-networking.md`](roce-switch-networking.md) 把「节点 `trust=dscp` + `NCCL_IB_TC=106` + 交换机 PFC `traffic-class=3`」三处对齐即可。
+
 ---
 
-## 作者
-
-维护者 [@alexlu0912_admin](https://gitee.com/alexlu0912_admin) · `4node` 分支
-
-## License
-
-MIT License — 见 [LICENSE](./LICENSE)。
+_Maintained by [@alexlu0912_admin](https://gitee.com/alexlu0912_admin) · 4node 分支_
