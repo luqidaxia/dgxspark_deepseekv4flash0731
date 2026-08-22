@@ -84,25 +84,30 @@ NCCL_IB_TC=106
 
 > 注意：`NCCL_IB_TC` 的值是 **ToS 字节（106）**，不是 DSCP 值（26）。NCCL 2.17+ 支持，实测 NCCL 2.28/2.30 均生效。
 
-### 3.3 交换机侧：PFC 开 traffic-class 3 + 信任 L3/DSCP
+### 3.3 交换机侧：PFC 开 traffic-class 3 + 信任 L3/DSCP + ECN
 
-以 MikroTik RouterOS 交换机为例（接口名 `qsfp56-1-1`/`qsfp56-2-1`/`qsfp56-dd-1-1`/`qsfp56-dd-2-1`）：
+以 MikroTik RouterOS 交换机为例（4 个 RoCE 接口：`qsfp56-1-1` / `qsfp56-2-1` / `qsfp56-dd-1-1` / `qsfp56-dd-2-1`）：
 
 ```routeros
-# 1. 创建 PFC 配置：流量类 3，开收发暂停帧
+# 1. 创建专用的 PFC 配置（定义 RoCE 流量类 3，并开启收发暂停帧）
 /interface ethernet switch qos priority-flow-control
 add name=pfc-tc3 rx=yes tx=yes traffic-class=3
 
-# 2. 绑定到 4 个接口，信任 L3/DSCP，并解除队列 3 限速
+# 2. 逐个接口绑定 PFC 配置、信任 L3/DSCP、解除队列 3 限速
 /interface ethernet switch qos port
-set [ find name~"^(qsfp56-1-1|qsfp56-2-1|qsfp56-dd-1-1|qsfp56-dd-2-1)$" ] pfc=pfc-tc3 trust-l3=keep egress-rate-queue3=0
+set qsfp56-1-1    pfc=pfc-tc3 trust-l3=keep egress-rate-queue3=0
+set qsfp56-2-1    pfc=pfc-tc3 trust-l3=keep egress-rate-queue3=0
+set qsfp56-dd-1-1 pfc=pfc-tc3 trust-l3=keep egress-rate-queue3=0
+set qsfp56-dd-2-1 pfc=pfc-tc3 trust-l3=keep egress-rate-queue3=0
 
-# 3. 巨型帧（MTU 9000）
-/interface ethernet
-set [ find name~"^(qsfp56-1-1|qsfp56-2-1|qsfp56-dd-1-1|qsfp56-dd-2-1)$" ] mtu=9000 l2mtu=9
+# 3. 队列 3 开启 ECN（配合节点 DSCP 26 的 ECN 位，缓解拥塞）
+/interface ethernet switch qos tx-manager queue
+set 3 ecn=yes
 ```
 
-要点：交换机的 PFC `traffic-class` 必须与节点侧 `priority`（3）一致；`trust-l3=keep` 让交换机按 IP DSCP 归类，而不是按 L2 PCP。
+> 巨型帧另需在接口上单独配置：`/interface ethernet set <port> mtu=9000 l2mtu=9`（本集群 4 口已统一 200G + MTU 9000）。
+
+要点：交换机的 PFC `traffic-class` 必须与节点侧 `priority`（3）一致；`trust-l3=keep` 让交换机按 IP DSCP 归类，而不是按 L2 PCP；队列 3 的 `ecn=yes` 让拥塞时打 ECN 标记，配合 RoCE 的 CNP（拥塞通知）机制实现无损。
 
 ---
 
