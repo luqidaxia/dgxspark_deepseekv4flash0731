@@ -66,6 +66,7 @@
 │   ├── groupB_node03.sh          # 组B head (node03)
 │   ├── groupB_node04.sh          # 组B worker (node04)
 │   └── README.md
+├── BENCHMARK.md                  # 三种组网拓扑性能对比报告（直连/交换机 × TP2/TP4）
 └── README.md                     # 本文件
 ```
 
