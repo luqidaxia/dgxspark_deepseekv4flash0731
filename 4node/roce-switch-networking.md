@@ -86,7 +86,7 @@ NCCL_IB_TC=106
 
 ### 3.3 交换机侧：PFC 开 traffic-class 3 + 信任 L3/DSCP + ECN
 
-以 MikroTik **CRS812-8DS-2DQ-2DDQ-RM** 交换机（RouterOS）为例。4 个 RoCE 接口：2 个 **DQ 口**（`qsfp56-1-1` / `qsfp56-2-1`，QSFP56，200G）+ 2 个 **DDQ 口**（`qsfp56-dd-1-1` / `qsfp56-dd-2-1`，QSFP-DD，200G）：
+以 MikroTik **CRS812-8DS-2DQ-2DDQ-RM** 交换机（RouterOS）为例。完整端口：8× **DS 口**（50G，本集群未使用）+ 2× **DQ 口**（QSFP56，200G）+ 2× **DDQ 口**（QSFP-DD，200G）。本集群只用其中 4 个 RoCE 接口：2 个 **DQ 口**（`qsfp56-1-1` / `qsfp56-2-1`）+ 2 个 **DDQ 口**（`qsfp56-dd-1-1` / `qsfp56-dd-2-1`）：
 
 ```routeros
 # 1. 创建专用的 PFC 配置（定义 RoCE 流量类 3，并开启收发暂停帧）
